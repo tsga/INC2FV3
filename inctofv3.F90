@@ -155,7 +155,7 @@ program INC2FV3
         endif
 
         status =nf90_close(ncid) 
-        call netcdf_err(status, 'closing file '//trim(gaussian_inc_files(it)), errflg, errmsg)
+        call netcdf_err(status, 'closing file '//trim(gaussian_inc_files(1)), errflg, errmsg)
         if (errflg .ne. 0) then 
             print*, trim(errmsg)
             stop
