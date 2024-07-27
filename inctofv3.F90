@@ -30,9 +30,14 @@ program INC2FV3
     character(len=32) :: weight_file = "wgf48.nc"   != inc_dir + "wgf48.nc"   
     ! stc_inc_reg = np.full((nt, 4, len(frac_b),), 9.96921e+36)
     ! slc_inc_reg = np.full((nt, 4, len(frac_b),), 9.96921e+36)
+
+    print*, "starting Increment to FV3 conversion"
     
     call read_back_esmf_weights(weight_file, n_S, row_esmf, col_esmf, mask_b, S_esmf, frac_b)
+    print*, "Finished reading ESMF weights"
+
     call read_increments(nt, gaussian_inc_files, stc_inc_gauss, slc_inc_gauss, xg, yg)
+    print*, "Finished reading increments"
 
     n_b = size(frac_b)
     if (n_b .ne. (6 * ny * nx)) then
@@ -46,9 +51,13 @@ program INC2FV3
     allocate(obs_ref(n_b))
 
     ! obs_ref = np.full((len(frac_b),), 0.0)
-
+    print*, "starting interpolations"
     do it = 1, nt
+        print*, "it = ", it
+
         do k = 1, 4
+            print*, "k = ", k
+
             obs_in = reshape(stc_inc_gauss(it, k, :, :), [xg * yg])  !(/xg*yg/)
             obs_ref = 0.0
             do j = 1, n_S
@@ -77,7 +86,11 @@ program INC2FV3
         enddo
     enddo
 
+    print*, "Finished interpolation, starting writing regridded data"
+
     call write_regridded_inc(fv3_inc_prefix, nt, nk, ny, nx, n_b, stc_inc_reg, slc_inc_reg)
+
+    print*, "deallocating memory"
 
    
     deallocate(stc_inc_reg, slc_inc_reg, obs_in, obs_ref)
@@ -89,7 +102,8 @@ program INC2FV3
 
     if (allocated(stc_inc_gauss)) deallocate(stc_inc_gauss)
     if (allocated(slc_inc_gauss)) deallocate(slc_inc_gauss)
-
+    
+    print*, "Done"
 
   contains
     
