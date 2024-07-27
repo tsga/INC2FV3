@@ -36,7 +36,7 @@ program INC2FV3
 
     n_b = size(frac_b)
     if (n_b .ne. (6 * ny * nx)) then
-        print*, "length of target array nb ", nb, " not equal to num tiles * ny * nx ", 6*ny*nx
+        print*, "length of target array nb ", n_b, " not equal to num tiles * ny * nx ", 6*ny*nx
         STOP
     endif
 
@@ -77,7 +77,7 @@ program INC2FV3
         enddo
     enddo
 
-    call write_regridded_inc(fv3_inc_prefix, nt, nk, ny, nx, nb, stc_inc_reg, slc_inc_reg)
+    call write_regridded_inc(fv3_inc_prefix, nt, nk, ny, nx, n_b, stc_inc_reg, slc_inc_reg)
 
    
     deallocate(stc_inc_reg, slc_inc_reg, obs_in, obs_ref)
@@ -147,8 +147,8 @@ program INC2FV3
             stop
         endif
 
-        allocate(stc_inc_guass(nt, nk, xg, yg))
-        allocate(slc_inc_guass(nt, nk, xg, yg))
+        allocate(stc_inc_gauss(nt, nk, xg, yg))
+        allocate(slc_inc_gauss(nt, nk, xg, yg))
 
         do it = 1, nt
             inquire (file=trim(gaussian_inc_files(it)), exist=exists)    
