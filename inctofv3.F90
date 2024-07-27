@@ -1,6 +1,7 @@
 program INC2FV3
     
     use netcdf
+    use machine,                  only: kind_phys, kind_dyn
 
     implicit none
 
@@ -24,7 +25,7 @@ program INC2FV3
     integer  :: ny = 48
     integer  :: nx = 48
     integer  :: xg, yg
-    integer  :: it, k, y, x
+    integer  :: it, k, j, y, x
 
     character(len=32) :: weight_file = "wgf48.nc"   != inc_dir + "wgf48.nc"   
     ! stc_inc_reg = np.full((nt, 4, len(frac_b),), 9.96921e+36)
@@ -33,8 +34,8 @@ program INC2FV3
     call read_back_esmf_weights(weight_file, n_S, row_esmf, col_esmf, mask_b, S_esmf, frac_b)
     call read_increments(nt, gaussian_inc_files, stc_inc_gauss, slc_inc_gauss, xg, yg)
 
-    nb = len(frac_b)
-    if (nb .ne. (6 * ny * nx)) then
+    n_b = size(frac_b)
+    if (n_b .ne. (6 * ny * nx)) then
         print*, "length of target array nb ", nb, " not equal to num tiles * ny * nx ", 6*ny*nx
         STOP
     endif
@@ -48,7 +49,7 @@ program INC2FV3
 
     do it = 1, nt
         do k = 1, 4
-            obs_in = reshape(stc_inc_guass(it, k, :, :), [xg * yg])  !(/xg*yg/)
+            obs_in = reshape(stc_inc_gauss(it, k, :, :), [xg * yg])  !(/xg*yg/)
             obs_ref = 0.0
             do j = 1, n_S
                 obs_ref(row_esmf(j)) = obs_ref(row_esmf(j)) + S_esmf(j) * obs_in(col_esmf(j))
@@ -61,7 +62,7 @@ program INC2FV3
             enddo
             stc_inc_reg(it, k, :) = obs_ref(:)
 
-            obs_in = reshape(slc_inc_guass(it, k, :, :), [xg * yg])
+            obs_in = reshape(slc_inc_gauss(it, k, :, :), [xg * yg])
             obs_ref = 0.0
             do j = 1, n_S
                 obs_ref(row_esmf(j)) = obs_ref(row_esmf(j)) + S_esmf(j) * obs_in(col_esmf(j))
@@ -111,7 +112,7 @@ program INC2FV3
         character(len=32), dimension(4) :: stc_vars = [character(len=32) :: 'soilt1_inc', 'soilt2_inc', 'soilt3_inc', 'soilt4_inc']
         character(len=32), dimension(4) :: slc_vars = [character(len=32) :: 'slc1_inc', 'slc2_inc', 'slc3_inc', 'slc4_inc']
 
-        character(len=*) :: errmsg
+        character(len=500) :: errmsg
         integer          :: errflg
 
         inquire (file=trim(gaussian_inc_files(1)), exist=exists)    
@@ -221,7 +222,7 @@ program INC2FV3
         integer  :: i, it, k, tl
         real     :: val_tile (ny*nx)
 
-        character(len=*) :: errmsg
+        character(len=500) :: errmsg
         integer          :: errflg
 
         character(len=32), dimension(4) :: stc_vars = [character(len=32) :: 'soilt1_inc', 'soilt2_inc', 'soilt3_inc', 'soilt4_inc']
@@ -310,8 +311,8 @@ program INC2FV3
     
         INTEGER                :: ERROR, NCID, grp_ncid, ID_DIM, ID_VAR, n_b
         LOGICAL                :: file_exists
-        character(len=120)      :: dim_name = "n_s"
-        character(len=*) :: errmsg
+        character(len=32)      :: dim_name = "n_s"
+        character(len=500) :: errmsg
         integer          :: errflg
 
         INQUIRE(FILE=trim(inp_file), EXIST=file_exists)
