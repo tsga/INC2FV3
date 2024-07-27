@@ -233,7 +233,7 @@ program INC2FV3
         logical  :: exists
         integer  :: ncid, status, varid
         integer  :: ierr
-        integer  :: i, it, k, tl
+        integer  :: it, k, tl
         real     :: val_tile (ny*nx)
 
         character(len=500) :: errmsg
@@ -244,6 +244,8 @@ program INC2FV3
 
 
         do tl = 1, 6
+            print*, "tile ", tl
+
             write(tile_str, '(I0)') tl
             file_out = trim(inc_out) // ".tile" // tile_str // ".nc"
 
@@ -261,6 +263,8 @@ program INC2FV3
             endif
             
             do k = 1, nk
+                print*, "k = ", k
+
                 ! ncOut.createVariable('soilt1_inc', 'f4', ('Time', 'yaxis_1', 'xaxis_1',), fill_value=9.96921e+36)
                 status = nf90_inq_varid(ncid, stc_vars(k), varid)
                 call netcdf_err(status, ' getting varid for '//trim(stc_vars(k)), errflg, errmsg) 
@@ -270,7 +274,7 @@ program INC2FV3
                 endif
                 
                 do it = 1, nt
-                    val_tile = stc_inc_reg(i, k, (tl-1)*ny*nx+1:tl*ny*nx)
+                    val_tile = stc_inc_reg(it, k, (tl-1)*ny*nx+1:tl*ny*nx)
                     ! var stored as soilt1_inc(Time, yaxis_1, xaxis_1)
                     status = nf90_put_var(ncid, varid , reshape(val_tile, [nx, ny]), start = (/1, 1, it/), count = (/nx, ny, 1/))
                     call netcdf_err(status, ' writing array for '//trim(stc_vars(k)), errflg, errmsg) 
@@ -289,7 +293,9 @@ program INC2FV3
                 endif
                 
                 do it = 1, nt
-                    val_tile = slc_inc_reg(i, k, (tl-1)*ny*nx+1:tl*ny*nx)
+                    print*, "it = ", it
+                    
+                    val_tile = slc_inc_reg(it, k, (tl-1)*ny*nx+1:tl*ny*nx)
                     ! var stored as soilt1_inc(Time, yaxis_1, xaxis_1)
                     status = nf90_put_var(ncid, varid , reshape(val_tile, [nx, ny]), start = (/1, 1, it/), count = (/nx, ny, 1/))
                     call netcdf_err(status, ' writing array for '//trim(slc_vars(k)), errflg, errmsg) 
