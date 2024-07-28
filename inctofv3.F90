@@ -29,7 +29,7 @@ program INC2FV3
     integer  :: nx = 48
     integer  :: xg, yg
     integer  :: it, k, j, y, x
-    integer :: ierr, nprocs, myrank
+    integer :: ierr, nprocs, myrank, irank
     integer              :: nlunit
 
     character(len=32)    :: weight_file = "wgf48.nc"   != inc_dir + "wgf48.nc"       
@@ -142,7 +142,7 @@ program INC2FV3
 
   contains
     
-    subroutine read_increments_atrank(irank, nt, nk, gaussian_inc_prefix, stc_inc_gauss, slc_inc_gauss, xg, yg)
+    subroutine read_increments_atrank(irank, nt, nk, fhr_int, gaussian_inc_prefix, stc_inc_gauss, slc_inc_gauss, xg, yg)
 
         implicit none
         
@@ -235,7 +235,7 @@ program INC2FV3
                 endif
                 ! soilt1_inc(latitude, longitude)
                 status = nf90_get_var(ncid, varid, stc_inc_gauss(it, k, :, :),  start = (/1, 1/), count = (/xg, yg/))
-                call netcdf_err(status, ' reading data for '//trim(stc_vars(k))//' from file '//trim(gaussian_inc_file)), errflg, errmsg) 
+                call netcdf_err(status, ' reading data for '//trim(stc_vars(k))//' from file '//trim(gaussian_inc_file), errflg, errmsg) 
                 if (errflg .ne. 0) then 
                     print*, trim(errmsg)
                     stop
