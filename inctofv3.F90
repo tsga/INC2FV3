@@ -5,6 +5,8 @@ program INC2FV3
 
     implicit none
 
+    include 'mpif.h'
+
     Integer                 :: n_S, n_b
     INTEGER, ALLOCATABLE    :: row_esmf(:), col_esmf(:), mask_b(:) 
     REAL, ALLOCATABLE       :: S_esmf(:), frac_b(:)
@@ -20,28 +22,50 @@ program INC2FV3
     character(len=32), dimension(3) :: gaussian_inc_files = [character(len=32) :: "fv_sfc_increment3.nc", "fv_sfc_increment6.nc", "fv_sfc_increment9.nc"]
     character(len=32) :: fv3_inc_prefix = "sfc_inc"
     real, dimension(3) :: time_list = [3.0, 6.0, 9.0]
+    integer, dimension(3) :: fhr_int = [3, 6, 9]
     integer  :: nt = 3
     integer  :: nk = 4
     integer  :: ny = 48
     integer  :: nx = 48
     integer  :: xg, yg
     integer  :: it, k, j, y, x
+    integer :: ierr, nprocs, myrank
+    integer              :: nlunit
 
-    character(len=32) :: weight_file = "wgf48.nc"   != inc_dir + "wgf48.nc"   
-    ! stc_inc_reg = np.full((nt, 4, len(frac_b),), 9.96921e+36)
-    ! slc_inc_reg = np.full((nt, 4, len(frac_b),), 9.96921e+36)
+    character(len=32)    :: weight_file = "wgf48.nc"   != inc_dir + "wgf48.nc"       
+    character(len=128)   :: gaussian_sfc_inc_prefix = "sfcincr_2021122100_fhr0"  !sfcincr_2021122100_fhr06_mem006
+    character(len=128)   :: fv3_sfc_inc_prefix = "sfc_inc_2021122100_mem"           !sfc_inc_2021122100_mem006_tile6.nc
+    integer              :: ens_size = 20
 
-    print*, "starting Increment to FV3 conversion"
+    NAMELIST/NAMSNO/ weight_file, gaussian_sfc_inc_prefix, fv3_sfc_inc_prefix, ens_size 
+
+    CALL MPI_INIT(IERR)
+    CALL MPI_COMM_SIZE(MPI_COMM_WORLD, NPROCS, IERR)
+    CALL MPI_COMM_RANK(MPI_COMM_WORLD, MYRANK, IERR)
+
+    PRINT*,"starting Convert Gaussian Increment to FV3 ON RANK ", MYRANK, " RUNNING WITH ", NPROCS, "TASKS"
+    
+    IF (MYRANK==0) PRINT*,"READING NAMSNO NAMELIST."
+
+    nlunit=23
+    open (unit=nlunit, file='fort.3600', READONLY, status='OLD')
+    read(nlunit, NAMSNO)
+    close(nlunit)
+    IF (MYRANK==0) WRITE(6, NAMSNO)
+
+    if (myrank+1 > ens_size) then
+        print*, "Not running on proc ", myrank
+        goto 999
+    endif
+
+    IF (MYRANK==0) print*, " Start reading esmf weights"
     
     call read_back_esmf_weights(weight_file, n_S, row_esmf, col_esmf, mask_b, S_esmf, frac_b)
     print*, "Finished reading ESMF weights"
 
-    call read_increments(nt, gaussian_inc_files, stc_inc_gauss, slc_inc_gauss, xg, yg)
-    print*, "Finished reading increments"
-
     n_b = size(frac_b)
     if (n_b .ne. (6 * ny * nx)) then
-        print*, "length of target array nb ", n_b, " not equal to num tiles * ny * nx ", 6*ny*nx
+        print*, "proc ", myrank, " length of target array nb ", n_b, " not equal to num tiles * ny * nx ", 6*ny*nx
         STOP
     endif
 
@@ -50,49 +74,57 @@ program INC2FV3
     allocate(obs_in(n_S))
     allocate(obs_ref(n_b))
 
-    ! obs_ref = np.full((len(frac_b),), 0.0)
-    print*, "starting interpolations"
-    do it = 1, nt
-        print*, "it = ", it
+    do irank = myrank+1, ens_size, nprocs 
 
-        do k = 1, 4
-            print*, "k = ", k
+        print*, "proc ", myrank, " loop ", irank
 
-            obs_in = reshape(stc_inc_gauss(it, k, :, :), [xg * yg])  !(/xg*yg/)
-            obs_ref = 0.0
-            do j = 1, n_S
-                obs_ref(row_esmf(j)) = obs_ref(row_esmf(j)) + S_esmf(j) * obs_in(col_esmf(j))
-            enddo
-            do j = 1, n_b
-                if ((frac_b(j) .ne. 0) .and. (frac_b(j) .ne. 1)) then 
-                    ! print*, stc_inc_vars[k], " frac adj applied"
-                    obs_ref(j) = obs_ref(j) / frac_b(j)
-                endif
-            enddo
-            stc_inc_reg(it, k, :) = obs_ref(:)
+        call read_increments_atrank(irank, nt, nk, fhr_int, gaussian_sfc_inc_prefix, stc_inc_gauss, slc_inc_gauss, xg, yg)
+        ! call read_increments(nt, nk, gaussian_inc_files, stc_inc_gauss, slc_inc_gauss, xg, yg)
+        print*, "proc ", myrank, " loop ", irank, " Finished reading increments starting interpolations"
+        do it = 1, nt
+            do k = 1, 4
+                ! print*, "it = ", it, " k = ", k
 
-            obs_in = reshape(slc_inc_gauss(it, k, :, :), [xg * yg])
-            obs_ref = 0.0
-            do j = 1, n_S
-                obs_ref(row_esmf(j)) = obs_ref(row_esmf(j)) + S_esmf(j) * obs_in(col_esmf(j))
+                obs_in = reshape(stc_inc_gauss(it, k, :, :), [xg * yg])  !(/xg*yg/)
+                obs_ref = 0.0
+                do j = 1, n_S
+                    obs_ref(row_esmf(j)) = obs_ref(row_esmf(j)) + S_esmf(j) * obs_in(col_esmf(j))
+                enddo
+                do j = 1, n_b
+                    if ((frac_b(j) .ne. 0) .and. (frac_b(j) .ne. 1)) then 
+                        ! print*, stc_inc_vars[k], " frac adj applied"
+                        obs_ref(j) = obs_ref(j) / frac_b(j)
+                    endif
+                enddo
+                stc_inc_reg(it, k, :) = obs_ref(:)
+
+                obs_in = reshape(slc_inc_gauss(it, k, :, :), [xg * yg])
+                obs_ref = 0.0
+                do j = 1, n_S
+                    obs_ref(row_esmf(j)) = obs_ref(row_esmf(j)) + S_esmf(j) * obs_in(col_esmf(j))
+                enddo
+                do j = 1, n_b
+                    if ((frac_b(j) .ne. 0) .and. (frac_b(j) .ne. 1)) then 
+                        ! print*, stc_inc_vars[k], " frac adj applied"
+                        obs_ref(j) = obs_ref(j) / frac_b(j)
+                    endif
+                enddo
+                slc_inc_reg(it, k, :) = obs_ref(:)
             enddo
-            do j = 1, n_b
-                if ((frac_b(j) .ne. 0) .and. (frac_b(j) .ne. 1)) then 
-                    ! print*, stc_inc_vars[k], " frac adj applied"
-                    obs_ref(j) = obs_ref(j) / frac_b(j)
-                endif
-            enddo
-            slc_inc_reg(it, k, :) = obs_ref(:)
         enddo
+
+        print*, "proc ", myrank, " loop ", irank, " Finished interpolation, starting writing regridded data"
+
+        call write_regridded_inc_atrank(irank, fv3_sfc_inc_prefix, nt, nk, ny, nx, n_b, stc_inc_reg, slc_inc_reg)
+        ! call write_regridded_inc(fv3_sfc_inc_prefix, nt, nk, ny, nx, n_b, stc_inc_reg, slc_inc_reg)
+
+        print*, "proc ", myrank, " loop ", irank, " deallocating memory"  
+        
+        if (allocated(stc_inc_gauss)) deallocate(stc_inc_gauss)
+        if (allocated(slc_inc_gauss)) deallocate(slc_inc_gauss)
+
     enddo
-
-    print*, "Finished interpolation, starting writing regridded data"
-
-    call write_regridded_inc(fv3_inc_prefix, nt, nk, ny, nx, n_b, stc_inc_reg, slc_inc_reg)
-
-    print*, "deallocating memory"
-
-   
+    
     deallocate(stc_inc_reg, slc_inc_reg, obs_in, obs_ref)
     if (allocated(row_esmf)) deallocate(row_esmf)
     if (allocated(col_esmf)) deallocate(col_esmf)
@@ -100,18 +132,248 @@ program INC2FV3
     if (allocated(S_esmf)) deallocate(S_esmf)
     if (allocated(frac_b)) deallocate(frac_b)
 
-    if (allocated(stc_inc_gauss)) deallocate(stc_inc_gauss)
-    if (allocated(slc_inc_gauss)) deallocate(slc_inc_gauss)
-    
-    print*, "Done"
+    print*, "Done on proc ", myrank
+
+999 continue
+
+    CALL MPI_FINALIZE(IERR)
+
+    STOP
 
   contains
     
-    subroutine read_increments(nt, gaussian_inc_files, stc_inc_gauss, slc_inc_gauss, xg, yg)
+    subroutine read_increments_atrank(irank, nt, nk, gaussian_inc_prefix, stc_inc_gauss, slc_inc_gauss, xg, yg)
 
         implicit none
         
-        integer :: nt
+        integer :: irank, nt, nk
+        integer, dimension(nt) :: fhr_int
+        character(len=*)    :: gaussian_inc_prefix  ! = [character(len=32) :: "fv_sfc_increment3.nc", "fv_sfc_increment6.nc", "fv_sfc_increment9.nc"]
+        real, allocatable    :: stc_inc_gauss(:, :, :, :), slc_inc_gauss(:, :, :, :)
+        integer  :: xg, yg
+
+        character(len=500)    :: gaussian_inc_file
+        character(len=1)    :: tile_str
+        character(len=3)    :: mem_str
+        character(len=2)    :: fhr_str
+        character(len=120)  :: file_out
+        logical  :: exists
+        integer  :: ncid, status, varid
+        integer  :: ierr
+        integer  :: i, it, k, tl
+
+        character(len=32), dimension(4) :: stc_vars = [character(len=32) :: 'soilt1_inc', 'soilt2_inc', 'soilt3_inc', 'soilt4_inc']
+        character(len=32), dimension(4) :: slc_vars = [character(len=32) :: 'slc1_inc', 'slc2_inc', 'slc3_inc', 'slc4_inc']
+
+        character(len=500) :: errmsg
+        integer          :: errflg
+        
+        write(fhr_str, "(I2.2)") fhr_int(1)
+        write(mem_str, '(I3.3)') irank
+        gaussian_inc_file = trim(gaussian_inc_prefix)//fhr_str//"_mem"//mem_str       !sfcincr_2021122100_fhr09_mem008
+
+        inquire (file=trim(gaussian_inc_file), exist=exists)    
+        if (exists) then
+            status = nf90_open(trim(gaussian_inc_file), NF90_NOWRITE, ncid)  ! open the file
+            call netcdf_err(status, ' opening file '//trim(gaussian_inc_file), errflg, errmsg) 
+            if (errflg .ne. 0) then 
+                print*, trim(errmsg)
+                stop
+            endif
+        else
+            errmsg = 'FATAL Error Expected file '//trim(gaussian_inc_file)//' for DA increment does not exist'
+            errflg = 1
+            stop
+        endif
+
+        call get_nc_dimlen(ncid, "longitude", xg, errflg, errmsg) 
+        if (errflg .ne. 0) then 
+            print*, trim(errmsg)
+            stop
+        endif
+        call get_nc_dimlen(ncid, "latitude", yg, errflg, errmsg) 
+        if (errflg .ne. 0) then 
+            print*, trim(errmsg)
+            stop
+        endif
+
+        status =nf90_close(ncid) 
+        call netcdf_err(status, 'closing file '//trim(gaussian_inc_file), errflg, errmsg)
+        if (errflg .ne. 0) then 
+            print*, trim(errmsg)
+            stop
+        endif
+
+        allocate(stc_inc_gauss(nt, nk, xg, yg))
+        allocate(slc_inc_gauss(nt, nk, xg, yg))
+
+        do it = 1, nt
+
+            write(fhr_str, "(I2.2)") fhr_int(it)
+            gaussian_inc_file = trim(gaussian_inc_prefix)//fhr_str//"_mem"//mem_str
+
+            inquire (file=trim(gaussian_inc_file), exist=exists)    
+            if (exists) then
+                status = nf90_open(trim(gaussian_inc_file), NF90_NOWRITE, ncid)  ! open the file
+                call netcdf_err(status, ' opening file '//trim(gaussian_inc_file), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+            else
+                errmsg = 'FATAL Error Expected file '//trim(gaussian_inc_file)//' for DA increment does not exist'
+                errflg = 1
+                stop
+            endif
+
+            do k = 1, nk
+                status = nf90_inq_varid(ncid, stc_vars(k), varid)
+                call netcdf_err(status, ' getting varid for '//trim(stc_vars(k))//' from file '//trim(gaussian_inc_file), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+                ! soilt1_inc(latitude, longitude)
+                status = nf90_get_var(ncid, varid, stc_inc_gauss(it, k, :, :),  start = (/1, 1/), count = (/xg, yg/))
+                call netcdf_err(status, ' reading data for '//trim(stc_vars(k))//' from file '//trim(gaussian_inc_file)), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+
+                status = nf90_inq_varid(ncid, slc_vars(k), varid)
+                call netcdf_err(status, ' getting varid for '//trim(slc_vars(k))//' from file '//trim(gaussian_inc_file), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+                ! soilt1_inc(latitude, longitude)
+                status = nf90_get_var(ncid, varid, slc_inc_gauss(it, k, :, :),  start = (/1, 1/), count = (/xg, yg/))
+                call netcdf_err(status, ' reading data for '//trim(slc_vars(k))//' from file '//trim(gaussian_inc_file), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+            enddo
+
+            status =nf90_close(ncid) 
+            call netcdf_err(status, 'closing file '//trim(gaussian_inc_file), errflg, errmsg)
+            if (errflg .ne. 0) then 
+                print*, trim(errmsg)
+                stop
+            endif
+
+        enddo
+
+    end subroutine read_increments_atrank
+
+    subroutine write_regridded_inc_atrank(irank, fv3_sfc_inc_prefix, nt, nk, ny, nx, nb, stc_inc_reg, slc_inc_reg)
+
+        implicit none
+        
+        integer           :: irank
+        character(len=*)  :: fv3_sfc_inc_prefix
+        integer :: nt, nk, ny, nx, nb
+        real    :: stc_inc_reg(nt, nk, nb), slc_inc_reg(nt, nk, nb)
+        
+        character(len=1)    :: tile_str
+        character(len=3)    :: mem_str
+        character(len=500)  :: file_out
+        logical  :: exists
+        integer  :: ncid, status, varid
+        integer  :: ierr
+        integer  :: it, k, tl
+        real     :: val_tile (ny*nx)
+
+        character(len=500) :: errmsg
+        integer          :: errflg
+
+        character(len=32), dimension(4) :: stc_vars = [character(len=32) :: 'soilt1_inc', 'soilt2_inc', 'soilt3_inc', 'soilt4_inc']
+        character(len=32), dimension(4) :: slc_vars = [character(len=32) :: 'slc1_inc', 'slc2_inc', 'slc3_inc', 'slc4_inc']
+ 
+        write(mem_str, '(I3.3)') irank
+
+        do tl = 1, 6
+            print*, "tile ", tl
+
+            write(tile_str, '(I0)') tl
+            file_out = trim(fv3_sfc_inc_prefix)//mem_str//"_tile"//tile_str     !//".nc"    !sfc_inc_2021122100_mem006_tile6.nc
+
+            inquire (file=trim(file_out), exist=exists)    
+            if (exists) then
+                status = nf90_open(trim(file_out), NF90_WRITE, ncid)  ! open the file
+                call netcdf_err(status, ' opening file '//trim(file_out), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+            else
+                print*, 'FATAL Error in INC2FV3 Expected file '//trim(file_out)//' for DA increment does not exist'
+                return
+            endif
+            
+            do k = 1, nk
+                print*, "k = ", k
+
+                ! ncOut.createVariable('soilt1_inc', 'f4', ('Time', 'yaxis_1', 'xaxis_1',), fill_value=9.96921e+36)
+                status = nf90_inq_varid(ncid, stc_vars(k), varid)
+                call netcdf_err(status, ' getting varid for '//trim(stc_vars(k)), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+                
+                do it = 1, nt
+                    val_tile = stc_inc_reg(it, k, (tl-1)*ny*nx+1:tl*ny*nx)
+                    ! var stored as soilt1_inc(Time, yaxis_1, xaxis_1)
+                    status = nf90_put_var(ncid, varid , reshape(val_tile, [nx, ny]), start = (/1, 1, it/), count = (/nx, ny, 1/))
+                    call netcdf_err(status, ' writing array for '//trim(stc_vars(k)), errflg, errmsg) 
+                    if (errflg .ne. 0) then 
+                        print*, trim(errmsg), 'time step ', it
+                        stop
+                    endif
+                enddo
+
+                ! ncOut.createVariable('soilt1_inc', 'f4', ('Time', 'yaxis_1', 'xaxis_1',), fill_value=9.96921e+36)
+                status = nf90_inq_varid(ncid, slc_vars(k), varid)
+                call netcdf_err(status, ' getting varid for '//trim(slc_vars(k)), errflg, errmsg) 
+                if (errflg .ne. 0) then 
+                    print*, trim(errmsg)
+                    stop
+                endif
+                
+                do it = 1, nt
+                    print*, "it = ", it
+
+                    val_tile = slc_inc_reg(it, k, (tl-1)*ny*nx+1:tl*ny*nx)
+                    ! var stored as soilt1_inc(Time, yaxis_1, xaxis_1)
+                    status = nf90_put_var(ncid, varid , reshape(val_tile, [nx, ny]), start = (/1, 1, it/), count = (/nx, ny, 1/))
+                    call netcdf_err(status, ' writing array for '//trim(slc_vars(k)), errflg, errmsg) 
+                    if (errflg .ne. 0) then 
+                        print*, trim(errmsg), 'time step ', it
+                        stop
+                    endif
+                enddo
+
+            enddo
+
+            status =nf90_close(ncid) 
+            call netcdf_err(status, 'closing file '//trim(file_out), errflg, errmsg)
+            if (errflg .ne. 0) then 
+                print*, trim(errmsg)
+                stop
+            endif 
+
+        enddo
+                
+
+    end subroutine write_regridded_inc_atrank
+
+    subroutine read_increments(nt, nk, gaussian_inc_files, stc_inc_gauss, slc_inc_gauss, xg, yg)
+
+        implicit none
+        
+        integer :: nt, nk
         character(len=32), dimension(nt) :: gaussian_inc_files  ! = [character(len=32) :: "fv_sfc_increment3.nc", "fv_sfc_increment6.nc", "fv_sfc_increment9.nc"]
         real, allocatable    :: stc_inc_gauss(:, :, :, :), slc_inc_gauss(:, :, :, :)
         integer  :: xg, yg
@@ -294,7 +556,7 @@ program INC2FV3
                 
                 do it = 1, nt
                     print*, "it = ", it
-                    
+
                     val_tile = slc_inc_reg(it, k, (tl-1)*ny*nx+1:tl*ny*nx)
                     ! var stored as soilt1_inc(Time, yaxis_1, xaxis_1)
                     status = nf90_put_var(ncid, varid , reshape(val_tile, [nx, ny]), start = (/1, 1, it/), count = (/nx, ny, 1/))
