@@ -30,14 +30,16 @@ program INC2FV3
     integer  :: xg, yg
     integer  :: it, k, j, y, x
     integer :: ierr, nprocs, myrank, irank
-    integer              :: nlunit
+    integer              :: nlunit = 3600
+    logical              :: exists
+    character(len=512)   :: ioerrmsg
 
     character(len=32)    :: weight_file = "wgf48.nc"   != inc_dir + "wgf48.nc"       
-    character(len=128)   :: gaussian_sfc_inc_prefix = "sfcincr_2021122100_fhr0"  !sfcincr_2021122100_fhr06_mem006
+    character(len=128)   :: gaussian_sfc_inc_prefix = "sfcincr_2021122100_fhr"  !sfcincr_2021122100_fhr06_mem006
     character(len=128)   :: fv3_sfc_inc_prefix = "sfc_inc_2021122100_mem"           !sfc_inc_2021122100_mem006_tile6.nc
     integer              :: ens_size = 20
 
-    NAMELIST/NAMSNO/ weight_file, gaussian_sfc_inc_prefix, fv3_sfc_inc_prefix, ens_size 
+    NAMELIST/naminc/ weight_file, gaussian_sfc_inc_prefix, fv3_sfc_inc_prefix, ens_size 
 
     CALL MPI_INIT(IERR)
     CALL MPI_COMM_SIZE(MPI_COMM_WORLD, NPROCS, IERR)
@@ -45,13 +47,23 @@ program INC2FV3
 
     PRINT*,"starting Convert Gaussian Increment to FV3 ON RANK ", MYRANK, " RUNNING WITH ", NPROCS, "TASKS"
     
-    IF (MYRANK==0) PRINT*,"READING NAMSNO NAMELIST."
+    IF (MYRANK==0) PRINT*,"READING naminc NAMELIST."
 
-    nlunit=23
-    open (unit=nlunit, file='fort.3600', READONLY, status='OLD')
-    read(nlunit, NAMSNO)
+    inquire (file='fort.3600', exist=exists)    ! TBCL: this maybe be replaced by nlunit passed from ccpp
+    if (.not. exists) then
+        if (myrank==0) write(6,*) 'namelist file fort.3600 does not exist'      
+        stop  ! mpi_abort ToDO: change to MPI stopping protocol
+    endif
+    open (unit=nlunit, file='fort.3600', action='READ', status='OLD', iostat=ios, iomsg=ioerrmsg)
+    rewind(nlunit)
+    read(nlunit, nml=naminc)
     close(nlunit)
-    IF (MYRANK==0) WRITE(6, NAMSNO)
+    if (ios /= 0) then
+         if (myrank==0) write(6,*) trim(ioerrmsg)         
+         stop
+    end if
+
+    IF (MYRANK==0) WRITE(6, naminc)
 
     if (myrank+1 > ens_size) then
         print*, "Not running on proc ", myrank
