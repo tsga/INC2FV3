@@ -29,7 +29,7 @@ program INC2FV3
     integer  :: nx = 48
     integer  :: xg, yg
     integer  :: it, k, j, y, x
-    integer :: ierr, nprocs, myrank, irank
+    integer :: ierr, nprocs, myrank, irank, ios
     integer              :: nlunit = 3600
     logical              :: exists
     character(len=512)   :: ioerrmsg
