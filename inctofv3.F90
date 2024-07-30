@@ -240,7 +240,7 @@ program INC2FV3
             endif
 
             do k = 1, nk
-                print*, "rank ", rank-1, " it=", it, " k=",k
+                print*, "rank ", irank-1, " it=", it, " k=",k
                 status = nf90_inq_varid(ncid, stc_vars(k), varid)
                 call netcdf_err(status, ' getting varid for '//trim(stc_vars(k))//' from file '//trim(gaussian_inc_file), errflg, errmsg) 
                 if (errflg .ne. 0) then 
