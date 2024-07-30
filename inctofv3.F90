@@ -194,6 +194,7 @@ program INC2FV3
             endif
         else
             errmsg = 'FATAL Error Expected file '//trim(gaussian_inc_file)//' for DA increment does not exist'
+            print*, trim(errmsg)
             errflg = 1
             stop
         endif
@@ -220,7 +221,6 @@ program INC2FV3
         allocate(slc_inc_gauss(nt, nk, xg, yg))
 
         do it = 1, nt
-
             write(fhr_str, "(I2.2)") fhr_int(it)
             gaussian_inc_file = trim(gaussian_inc_prefix)//fhr_str//"_mem"//mem_str
 
@@ -235,10 +235,12 @@ program INC2FV3
             else
                 errmsg = 'FATAL Error Expected file '//trim(gaussian_inc_file)//' for DA increment does not exist'
                 errflg = 1
+                print*, trim(errmsg)
                 stop
             endif
 
             do k = 1, nk
+                print*, "rank ", rank-1, " it=", it, " k=",k
                 status = nf90_inq_varid(ncid, stc_vars(k), varid)
                 call netcdf_err(status, ' getting varid for '//trim(stc_vars(k))//' from file '//trim(gaussian_inc_file), errflg, errmsg) 
                 if (errflg .ne. 0) then 
